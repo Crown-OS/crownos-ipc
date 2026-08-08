@@ -1,0 +1,28 @@
+[package]
+name = "crownos-ipc"
+version = "0.1.0"
+edition = "2024"
+description = "Brokerless Unix-socket IPC bus for CrownOS system apps"
+license = "MIT"
+repository = "https://github.com/crown-os/crownos-ipc"
+
+[dependencies]
+rustix = { version = "1", default-features = false, features = ["std", "net", "event", "process"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+log = "0.4"
+
+tokio = { version = "1", default-features = false, features = ["net"], optional = true }
+async-io = { version = "2", optional = true }
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+smol = ["dep:async-io"]
+
+[dev-dependencies]
+rustix = { version = "1", default-features = false, features = ["std", "fs"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
+async-io = "2"
+futures-lite = "2"
