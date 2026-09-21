@@ -1,5 +1,5 @@
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use crate::frame::Kind;
 
@@ -157,8 +157,12 @@ macro_rules! protocol {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __reply_ty {
-    () => { () };
-    ($t:ty) => { $t };
+    () => {
+        ()
+    };
+    ($t:ty) => {
+        $t
+    };
 }
 
 #[doc(hidden)]
@@ -242,6 +246,10 @@ macro_rules! __proto_handler_fns {
       $($rest:tt)*
     ) => {
         $(#[$attr])*
+        // The argument list belongs to the protocol, not to this macro: by the
+        // time it expands, a method long enough to trip the lint is already a
+        // decision the protocol author made and peers are already calling.
+        #[allow(clippy::too_many_arguments)]
         fn $name(
             &mut self,
             $($a: $t,)*
@@ -381,6 +389,7 @@ macro_rules! __proto_client_fns {
       $($rest:tt)*
     ) => {
         $(#[$attr])*
+        #[allow(clippy::too_many_arguments)]
         pub fn $name(
             &mut self,
             $($a: $t,)*

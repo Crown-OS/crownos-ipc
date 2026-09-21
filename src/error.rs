@@ -44,11 +44,17 @@ impl RemoteError {
     pub const LIMIT: u32 = 4;
 
     pub fn new(code: u32, message: impl Into<String>) -> Self {
-        Self { code, message: message.into() }
+        Self {
+            code,
+            message: message.into(),
+        }
     }
 
     pub fn unknown_method(selector: u64) -> Self {
-        Self::new(Self::UNKNOWN_METHOD, format!("unknown method selector {selector:#018x}"))
+        Self::new(
+            Self::UNKNOWN_METHOD,
+            format!("unknown method selector {selector:#018x}"),
+        )
     }
 
     pub fn handler(message: impl Into<String>) -> Self {

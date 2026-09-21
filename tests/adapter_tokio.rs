@@ -36,7 +36,10 @@ fn test_dir() -> PathBuf {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tokio_call_and_events() {
     let dir = test_dir();
-    let mut server = ServiceBuilder::new("toktest").directory(&dir).build().expect("bind");
+    let mut server = ServiceBuilder::new("toktest")
+        .directory(&dir)
+        .build()
+        .expect("bind");
     let server_task = tokio::spawn(async move {
         let mut h = H { stop: false };
         serve(&mut server, |srv, peer, msg| {
@@ -52,7 +55,10 @@ async fn tokio_call_and_events() {
     });
 
     let mut client = AsyncClient::connect_in(&dir, "toktest").expect("connect");
-    client.subscribe::<tokproto::Tick>().await.expect("subscribe");
+    client
+        .subscribe::<tokproto::Tick>()
+        .await
+        .expect("subscribe");
 
     let doubled = client
         .call::<tokproto::double>(&tokproto::double { x: 21 }, vec![])
@@ -63,7 +69,10 @@ async fn tokio_call_and_events() {
     let tick = client.next_event::<tokproto::Tick>().await.expect("event");
     assert_eq!(tick, tokproto::Tick { n: 1 });
 
-    client.notify::<tokproto::stop>(&tokproto::stop {}, vec![]).await.expect("stop");
+    client
+        .notify::<tokproto::stop>(&tokproto::stop {}, vec![])
+        .await
+        .expect("stop");
     tokio::time::timeout(std::time::Duration::from_secs(5), server_task)
         .await
         .expect("server did not stop")
@@ -73,7 +82,10 @@ async fn tokio_call_and_events() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tokio_concurrent_clients() {
     let dir = test_dir();
-    let mut server = ServiceBuilder::new("toktest").directory(&dir).build().expect("bind");
+    let mut server = ServiceBuilder::new("toktest")
+        .directory(&dir)
+        .build()
+        .expect("bind");
     let server_task = tokio::spawn(async move {
         let mut h = H { stop: false };
         serve(&mut server, |srv, peer, msg| {
@@ -89,7 +101,10 @@ async fn tokio_concurrent_clients() {
         let dir = dir.clone();
         tasks.push(tokio::spawn(async move {
             let mut c = AsyncClient::connect_in(&dir, "toktest").expect("connect");
-            let r = c.call::<tokproto::double>(&tokproto::double { x: i }, vec![]).await.expect("call");
+            let r = c
+                .call::<tokproto::double>(&tokproto::double { x: i }, vec![])
+                .await
+                .expect("call");
             assert_eq!(r, i * 2);
         }));
     }
@@ -98,7 +113,9 @@ async fn tokio_concurrent_clients() {
     }
 
     let mut c = AsyncClient::connect_in(&dir, "toktest").expect("connect");
-    c.notify::<tokproto::stop>(&tokproto::stop {}, vec![]).await.expect("stop");
+    c.notify::<tokproto::stop>(&tokproto::stop {}, vec![])
+        .await
+        .expect("stop");
     tokio::time::timeout(std::time::Duration::from_secs(5), server_task)
         .await
         .expect("server did not stop")

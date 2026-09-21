@@ -77,7 +77,13 @@ impl Header {
             buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
         ]);
         let req_id = u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
-        Ok(Header { len, kind, fd_count, selector, req_id })
+        Ok(Header {
+            len,
+            kind,
+            fd_count,
+            selector,
+            req_id,
+        })
     }
 }
 
@@ -86,7 +92,13 @@ mod tests {
     use super::*;
 
     fn sample() -> Header {
-        Header { len: 42, kind: Kind::Request, fd_count: 3, selector: 0xdead_beef_cafe_f00d, req_id: 7 }
+        Header {
+            len: 42,
+            kind: Kind::Request,
+            fd_count: 3,
+            selector: 0xdead_beef_cafe_f00d,
+            req_id: 7,
+        }
     }
 
     #[test]
@@ -100,7 +112,10 @@ mod tests {
     fn rejects_oversize() {
         let mut h = sample();
         h.len = MAX_FRAME + 1;
-        assert!(matches!(Header::decode(&h.encode()), Err(Error::Malformed(_))));
+        assert!(matches!(
+            Header::decode(&h.encode()),
+            Err(Error::Malformed(_))
+        ));
     }
 
     #[test]

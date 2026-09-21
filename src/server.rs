@@ -19,7 +19,11 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { conn: ConnLimits::default(), max_conns_per_uid: 32, max_subscriptions: 64 }
+        Self {
+            conn: ConnLimits::default(),
+            max_conns_per_uid: 32,
+            max_subscriptions: 64,
+        }
     }
 }
 
@@ -149,7 +153,12 @@ impl Server {
                 }
             };
             if !self.authorizer.allows(&cred) {
-                log::warn!("{}: rejected peer uid {} pid {}", self.service, cred.uid, cred.pid);
+                log::warn!(
+                    "{}: rejected peer uid {} pid {}",
+                    self.service,
+                    cred.uid,
+                    cred.pid
+                );
                 continue;
             }
             let count = self.uid_counts.entry(cred.uid).or_insert(0);
@@ -159,18 +168,28 @@ impl Server {
             }
             *count += 1;
             let conn = Connection::from_stream(stream, self.limits.conn)?;
-            let peer = Peer { conn, cred, subs: HashSet::new() };
+            let peer = Peer {
+                conn,
+                cred,
+                subs: HashSet::new(),
+            };
             let index = match self.slots.iter().position(|s| s.peer.is_none()) {
                 Some(i) => {
                     self.slots[i].peer = Some(peer);
                     i
                 }
                 None => {
-                    self.slots.push(Slot { generation: 0, peer: Some(peer) });
+                    self.slots.push(Slot {
+                        generation: 0,
+                        peer: Some(peer),
+                    });
                     self.slots.len() - 1
                 }
             };
-            return Ok(Some(PeerId { index: index as u32, generation: self.slots[index].generation }));
+            return Ok(Some(PeerId {
+                index: index as u32,
+                generation: self.slots[index].generation,
+            }));
         }
     }
 
@@ -193,7 +212,10 @@ impl Server {
             .iter()
             .enumerate()
             .filter(|(_, s)| s.peer.is_some())
-            .map(|(i, s)| PeerId { index: i as u32, generation: s.generation })
+            .map(|(i, s)| PeerId {
+                index: i as u32,
+                generation: s.generation,
+            })
             .collect()
     }
 
@@ -212,7 +234,9 @@ impl Server {
     /// Pump inbound data for one peer. On any error the peer is removed and
     /// the error returned — the caller only needs to deregister its source.
     pub fn handle_readable(&mut self, id: PeerId) -> Result<(), Error> {
-        let Some(peer) = self.peer_mut(id) else { return Err(Error::Disconnected) };
+        let Some(peer) = self.peer_mut(id) else {
+            return Err(Error::Disconnected);
+        };
         match peer.conn.handle_readable() {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -223,7 +247,9 @@ impl Server {
     }
 
     pub fn handle_writable(&mut self, id: PeerId) -> Result<(), Error> {
-        let Some(peer) = self.peer_mut(id) else { return Err(Error::Disconnected) };
+        let Some(peer) = self.peer_mut(id) else {
+            return Err(Error::Disconnected);
+        };
         match peer.conn.handle_writable() {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -268,7 +294,9 @@ impl Server {
     /// True if the peer reached EOF and everything it sent has been drained;
     /// the peer is removed. Call after exhausting [`Server::next_request`].
     pub fn reap(&mut self, id: PeerId) -> bool {
-        let Some(peer) = self.peer(id) else { return true };
+        let Some(peer) = self.peer(id) else {
+            return true;
+        };
         if peer.conn.is_closed() {
             self.drop_peer(id);
             true
@@ -301,7 +329,9 @@ impl Server {
         payload: &[u8],
         fds: Vec<OwnedFd>,
     ) -> Result<(), Error> {
-        let Some(peer) = self.peer_mut(id) else { return Err(Error::Disconnected) };
+        let Some(peer) = self.peer_mut(id) else {
+            return Err(Error::Disconnected);
+        };
         peer.conn.send(kind, selector, req_id, payload, fds)?;
         // opportunistic flush keeps latency low without extra interest churn
         match peer.conn.handle_writable() {
@@ -334,7 +364,9 @@ impl Server {
     }
 
     pub fn drop_peer(&mut self, id: PeerId) {
-        let Some(slot) = self.slots.get_mut(id.index as usize) else { return };
+        let Some(slot) = self.slots.get_mut(id.index as usize) else {
+            return;
+        };
         if slot.generation != id.generation {
             return;
         }

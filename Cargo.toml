@@ -15,14 +15,17 @@ log = "0.4"
 
 tokio = { version = "1", default-features = false, features = ["net"], optional = true }
 async-io = { version = "2", optional = true }
+calloop = { version = "0.13", optional = true }
 
 [features]
 default = []
 tokio = ["dep:tokio"]
 smol = ["dep:async-io"]
+calloop = ["dep:calloop"]
 
 [dev-dependencies]
 rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 tokio = { version = "1", default-features = false, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
 async-io = "2"
 futures-lite = "2"
+calloop = "0.13"

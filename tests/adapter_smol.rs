@@ -36,7 +36,10 @@ fn test_dir() -> PathBuf {
 #[test]
 fn smol_call_and_events() {
     let dir = test_dir();
-    let mut server = ServiceBuilder::new("smoltest").directory(&dir).build().expect("bind");
+    let mut server = ServiceBuilder::new("smoltest")
+        .directory(&dir)
+        .build()
+        .expect("bind");
     // one executor thread drives the server, the test thread blocks on the client
     let server_thread = std::thread::spawn(move || {
         futures_lite::future::block_on(async move {
@@ -56,7 +59,10 @@ fn smol_call_and_events() {
 
     futures_lite::future::block_on(async {
         let mut client = AsyncClient::connect_in(&dir, "smoltest").expect("connect");
-        client.subscribe::<smolproto::Tick>().await.expect("subscribe");
+        client
+            .subscribe::<smolproto::Tick>()
+            .await
+            .expect("subscribe");
         let doubled = client
             .call::<smolproto::double>(&smolproto::double { x: 8 }, vec![])
             .await
@@ -64,7 +70,10 @@ fn smol_call_and_events() {
         assert_eq!(doubled, 16);
         let tick = client.next_event::<smolproto::Tick>().await.expect("event");
         assert_eq!(tick, smolproto::Tick { n: 7 });
-        client.notify::<smolproto::stop>(&smolproto::stop {}, vec![]).await.expect("stop");
+        client
+            .notify::<smolproto::stop>(&smolproto::stop {}, vec![])
+            .await
+            .expect("stop");
     });
 
     server_thread.join().expect("server thread");

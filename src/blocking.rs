@@ -56,7 +56,9 @@ where
         fds.push(PollFd::new(&*server, PollFlags::IN));
         let mut polled = Vec::with_capacity(peers.len());
         for &id in &peers {
-            let Some(interest) = server.peer_interest(id) else { continue };
+            let Some(interest) = server.peer_interest(id) else {
+                continue;
+            };
             let mut flags = PollFlags::empty();
             if interest.read {
                 flags |= PollFlags::IN;
@@ -64,7 +66,9 @@ where
             if interest.write {
                 flags |= PollFlags::OUT;
             }
-            let Some(fd) = server.peer_fd(id) else { continue };
+            let Some(fd) = server.peer_fd(id) else {
+                continue;
+            };
             fds.push(PollFd::from_borrowed_fd(fd, flags));
             polled.push(id);
         }

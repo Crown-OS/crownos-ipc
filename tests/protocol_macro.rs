@@ -49,7 +49,11 @@ impl testproto::Handler for TestHandler {
         self.flag = on;
     }
 
-    fn read_fd(&mut self, prefix: String, file: std::os::fd::OwnedFd) -> Result<String, RemoteError> {
+    fn read_fd(
+        &mut self,
+        prefix: String,
+        file: std::os::fd::OwnedFd,
+    ) -> Result<String, RemoteError> {
         let mut f = std::fs::File::from(file);
         f.seek(std::io::SeekFrom::Start(0))
             .map_err(|e| RemoteError::handler(e.to_string()))?;
@@ -71,9 +75,15 @@ fn spawn_server(dir: PathBuf) -> std::thread::JoinHandle<TestHandler> {
     let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
     let ready2 = ready.clone();
     let handle = std::thread::spawn(move || {
-        let mut server = ServiceBuilder::new("macrotest").directory(&dir).build().expect("bind");
+        let mut server = ServiceBuilder::new("macrotest")
+            .directory(&dir)
+            .build()
+            .expect("bind");
         ready2.wait();
-        let mut handler = TestHandler { flag: true, pokes: 0 };
+        let mut handler = TestHandler {
+            flag: true,
+            pokes: 0,
+        };
         blocking::serve(&mut server, |srv, peer, msg| {
             let selector = msg.selector;
             testproto::dispatch(&mut handler, srv, peer, msg)?;
@@ -117,15 +127,22 @@ fn full_protocol_round_trip() {
     }
 
     // fd-carrying request
-    let memfd = rustix::fs::memfd_create("macro-test", rustix::fs::MemfdFlags::CLOEXEC)
-        .expect("memfd");
+    let memfd =
+        rustix::fs::memfd_create("macro-test", rustix::fs::MemfdFlags::CLOEXEC).expect("memfd");
     let mut file = std::fs::File::from(memfd);
     file.write_all(b"world").expect("write");
-    let pending = client.read_fd("hello ".into(), file.into()).expect("read_fd send");
-    assert_eq!(client.wait(pending, TIMEOUT).expect("read_fd reply"), "hello world");
+    let pending = client
+        .read_fd("hello ".into(), file.into())
+        .expect("read_fd send");
+    assert_eq!(
+        client.wait(pending, TIMEOUT).expect("read_fd reply"),
+        "hello world"
+    );
 
     // subscribe, then trigger an event via notify
-    client.subscribe_blocking::<testproto::FlagChanged>(TIMEOUT).expect("subscribe");
+    client
+        .subscribe_blocking::<testproto::FlagChanged>(TIMEOUT)
+        .expect("subscribe");
     client.set_flag(true).expect("notify");
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     let event = loop {

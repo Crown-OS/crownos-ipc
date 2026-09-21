@@ -15,7 +15,8 @@ pub struct Credentials {
 impl Credentials {
     pub(crate) fn from_socket(fd: impl AsFd) -> std::io::Result<Self> {
         let ucred = rustix::net::sockopt::socket_peercred(&fd)?;
-        let pidfd = rustix::process::pidfd_open(ucred.pid, rustix::process::PidfdFlags::empty()).ok();
+        let pidfd =
+            rustix::process::pidfd_open(ucred.pid, rustix::process::PidfdFlags::empty()).ok();
         Ok(Self {
             uid: ucred.uid.as_raw(),
             gid: ucred.gid.as_raw(),
@@ -80,7 +81,12 @@ mod tests {
         assert!(Authorizer::Uids(vec![]).allows(&cred)); // own uid is implicit
         let deny_all = Authorizer::Custom(Box::new(|_| false));
         assert!(!deny_all.allows(&cred));
-        let other = Credentials { uid: cred.uid + 1, gid: cred.gid, pid: cred.pid, pidfd: None };
+        let other = Credentials {
+            uid: cred.uid + 1,
+            gid: cred.gid,
+            pid: cred.pid,
+            pidfd: None,
+        };
         assert!(!Authorizer::SameUid.allows(&other));
         assert!(Authorizer::Uids(vec![cred.uid + 1]).allows(&other));
     }

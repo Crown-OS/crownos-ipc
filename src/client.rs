@@ -127,17 +127,22 @@ impl Client {
         debug_assert_eq!(fds.len(), M::FD_COUNT);
         let payload = postcard::to_stdvec(args)?;
         let req_id = self.alloc_req();
-        self.conn.send(Kind::Request, M::SELECTOR, req_id, &payload, fds)?;
+        self.conn
+            .send(Kind::Request, M::SELECTOR, req_id, &payload, fds)?;
         self.pending.insert(req_id, Slot::Waiting);
         self.conn.handle_writable()?;
-        Ok(Pending { req_id, _reply: PhantomData })
+        Ok(Pending {
+            req_id,
+            _reply: PhantomData,
+        })
     }
 
     /// Fire-and-forget send for `notify` methods.
     pub fn notify<M: MethodMsg>(&mut self, args: &M::Args, fds: Vec<OwnedFd>) -> Result<(), Error> {
         debug_assert_eq!(fds.len(), M::FD_COUNT);
         let payload = postcard::to_stdvec(args)?;
-        self.conn.send(Kind::Notify, M::SELECTOR, 0, &payload, fds)?;
+        self.conn
+            .send(Kind::Notify, M::SELECTOR, 0, &payload, fds)?;
         self.conn.handle_writable()
     }
 
@@ -205,22 +210,33 @@ impl Client {
     /// Ask the server to start pushing `E` events to this connection.
     pub fn subscribe<E: EventMsg>(&mut self) -> Result<Pending<()>, Error> {
         let req_id = self.alloc_req();
-        self.conn.send(Kind::Subscribe, E::SELECTOR, req_id, &[], vec![])?;
+        self.conn
+            .send(Kind::Subscribe, E::SELECTOR, req_id, &[], vec![])?;
         self.pending.insert(req_id, Slot::Waiting);
         self.conn.handle_writable()?;
-        Ok(Pending { req_id, _reply: PhantomData })
+        Ok(Pending {
+            req_id,
+            _reply: PhantomData,
+        })
     }
 
     pub fn unsubscribe<E: EventMsg>(&mut self) -> Result<Pending<()>, Error> {
         let req_id = self.alloc_req();
-        self.conn.send(Kind::Unsubscribe, E::SELECTOR, req_id, &[], vec![])?;
+        self.conn
+            .send(Kind::Unsubscribe, E::SELECTOR, req_id, &[], vec![])?;
         self.pending.insert(req_id, Slot::Waiting);
         self.conn.handle_writable()?;
-        Ok(Pending { req_id, _reply: PhantomData })
+        Ok(Pending {
+            req_id,
+            _reply: PhantomData,
+        })
     }
 
     /// Blocking subscribe that waits for the server's acknowledgement.
-    pub fn subscribe_blocking<E: EventMsg>(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
+    pub fn subscribe_blocking<E: EventMsg>(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Result<(), Error> {
         let pending = self.subscribe::<E>()?;
         self.wait(pending, timeout)
     }

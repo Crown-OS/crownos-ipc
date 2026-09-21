@@ -1,17 +1,17 @@
-//! # crownos-ipc — the CrownOS system bus
+//! # crownos-ipc
 //!
-//! A brokerless, Unix-socket IPC bus for CrownOS system apps: the
-//! compositor, panels, the launchpad, the notification daemon and the
-//! phone companion all talk through it instead of D-Bus.
+//! A brokerless, Unix-socket IPC bus built for CrownOS.
 //!
 //! ## Design
 //!
-//! - **Brokerless.** Every service binds its own socket at
+//! - **Brokerless:** Unlike Dbus every service binds its own socket at
 //!   `$XDG_RUNTIME_DIR/crownos/<service>.sock`; messages travel exactly one
 //!   hop with no daemon in between. Service discovery is the socket path.
+//!
 //! - **Zero-handshake.** Peers are authenticated by the kernel
 //!   (`SO_PEERCRED`) at `accept(2)`; the first frame a client writes is its
 //!   first request. Same-uid peers are allowed by default ([`Authorizer`]).
+//!
 //! - **Rigid wire format.** A 20-byte binary header plus a
 //!   [postcard](https://postcard.jamesmunns.com)-encoded payload. Every
 //!   method has a compile-time selector hashed from its service, name and
@@ -25,34 +25,36 @@
 //!   bounded outboxes with read-side backpressure; a slow event subscriber
 //!   loses events instead of wedging the service.
 //! - **Runtime-agnostic.** The core is a non-blocking state machine pumped
-//!   by *any* event loop; optional `tokio` and `smol` features add async
-//!   adapters, and [`blocking`] covers CLIs and simple daemons.
+//!   by *any* event loop. It comes with optional features that ships adapters
+//!   for `calloop`, `tokio` and `smol`.
 //!
 //! ## Defining a protocol
 //!
 //! One [`protocol!`] definition generates both the typed client and the
-//! server trait, so the two sides cannot drift apart. The CrownOS system
-//! protocols ship in [`protocols`].
+//! server trait
 //!
-//! ## Serving (any calloop app, e.g. a crownshell widget)
-//!
+//! ## Server Side Setup
+//! It can be a bar or anything that wants to expose some interfaces
 //! ```ignore
+//! use crownos_ipc::adapter::calloop::CalloopService;
 //! use crownos_ipc::{ServiceBuilder, protocols::crownpad};
 //!
-//! let mut server = ServiceBuilder::new("crownpad").build()?;
-//! // register server (the listener fd) with calloop as a Generic source;
-//! // on readable: while let Some(peer) = server.accept()? { register
-//! // server.peer_fd(peer) as another source }
-//! // per-peer source callback:
-//! //   server.handle_writable(peer) / server.handle_readable(peer);
-//! //   while let Some(msg) = server.next_request(peer) {
-//! //       crownpad::dispatch(&mut handler, &mut server, peer, msg)?;
-//! //   }
-//! //   if server.reap(peer) { /* deregister source */ }
+//! let server = ServiceBuilder::new("crownpad").build()?;
+//! let ipc = CalloopService::insert(&handle, server, |app, server, peer, msg| {
+//!     crownpad::dispatch(&mut app.pad, server, peer, msg)
+//! })?;
+//! ipc.emit(&crownpad::Visibility { visible: true })?;
 //! ```
 //!
-//! ## Calling (blocking, e.g. a CLI or a keybinding helper)
+//! Without the feature the same thing is a few lines against [`Server`]
+//! directly: register its listener fd, `accept` on readable, register each
+//! `peer_fd`, then `handle_writable` / `handle_readable` / `next_request` /
+//! `reap` per peer.
 //!
+//! ## Client Side Setup
+//! e.g. a CLI or a keybinding helper that wants to interact with any servers
+//!
+//! ### Blocking
 //! ```ignore
 //! use crownos_ipc::protocols::crownpad;
 //!
@@ -60,7 +62,7 @@
 //! pad.toggle()?; // fire-and-forget
 //! ```
 //!
-//! ## Calling (tokio, feature `tokio`)
+//! ### Tokio Runtime (feature `tokio`)
 //!
 //! ```ignore
 //! use crownos_ipc::adapter::tokio::AsyncClient;
@@ -77,18 +79,23 @@
 //! A simple daemon can also just run [`blocking::serve`] on a thread and
 //! bridge into its UI loop with a `calloop` channel.
 
+#[doc(hidden)]
 pub mod adapter;
-pub mod blocking;
-pub mod client;
-pub mod conn;
-pub mod cred;
-pub mod error;
-pub mod frame;
+
+#[doc(hidden)]
 pub mod hash;
-pub mod proto;
-pub mod protocols;
-pub mod server;
-pub mod socket;
+
+#[doc(hidden)]
+pub mod blocking;
+
+mod client;
+mod conn;
+mod cred;
+mod error;
+mod frame;
+mod proto;
+mod server;
+mod socket;
 
 // re-exported for macro-generated code and payload tooling
 pub use postcard;

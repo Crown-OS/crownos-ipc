@@ -6,7 +6,7 @@ use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 use rustix::net::{
-    RecvAncillaryMessage, RecvFlags, RecvAncillaryBuffer, SendAncillaryBuffer,
+    RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer,
     SendAncillaryMessage, SendFlags, recvmsg, sendmsg,
 };
 
@@ -133,10 +133,16 @@ impl Connection {
             if self.outbox_full() || self.inbox.len() >= self.limits.max_inbox {
                 break;
             }
-            let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(MAX_FDS_PER_MSG))];
+            let mut space =
+                [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(MAX_FDS_PER_MSG))];
             let mut control = RecvAncillaryBuffer::new(&mut space);
             let mut iov = [IoSliceMut::new(&mut self.scratch)];
-            let recv = match recvmsg(&self.stream, &mut iov, &mut control, RecvFlags::CMSG_CLOEXEC) {
+            let recv = match recvmsg(
+                &self.stream,
+                &mut iov,
+                &mut control,
+                RecvFlags::CMSG_CLOEXEC,
+            ) {
                 Ok(r) => r,
                 Err(rustix::io::Errno::WOULDBLOCK) => break,
                 Err(rustix::io::Errno::INTR) => continue,
@@ -249,7 +255,11 @@ impl Connection {
         bytes.extend_from_slice(&header.encode());
         bytes.extend_from_slice(payload);
         self.outbox_bytes += bytes.len();
-        self.outbox.push_back(OutFrame { bytes, fds, offset: 0 });
+        self.outbox.push_back(OutFrame {
+            bytes,
+            fds,
+            offset: 0,
+        });
         Ok(())
     }
 
@@ -314,8 +324,20 @@ mod tests {
         (conn, b)
     }
 
-    fn frame_bytes(kind: Kind, selector: u64, req_id: u32, payload: &[u8], fd_count: u8) -> Vec<u8> {
-        let header = Header { len: payload.len() as u32, kind, fd_count, selector, req_id };
+    fn frame_bytes(
+        kind: Kind,
+        selector: u64,
+        req_id: u32,
+        payload: &[u8],
+        fd_count: u8,
+    ) -> Vec<u8> {
+        let header = Header {
+            len: payload.len() as u32,
+            kind,
+            fd_count,
+            selector,
+            req_id,
+        };
         let mut v = header.encode().to_vec();
         v.extend_from_slice(payload);
         v
@@ -376,7 +398,10 @@ mod tests {
             selector: 0,
             req_id: 0,
         };
-        let limits = ConnLimits { max_frame: 1024, ..Default::default() };
+        let limits = ConnLimits {
+            max_frame: 1024,
+            ..Default::default()
+        };
         let (a, mut raw) = UnixStream::pair().expect("socketpair");
         let mut conn = Connection::from_stream(a, limits).expect("conn");
         raw.write_all(&header.encode()).expect("write");
@@ -386,7 +411,8 @@ mod tests {
     #[test]
     fn send_and_flush_round_trip() {
         let (mut conn, mut raw) = pair();
-        conn.send(Kind::Reply, 9, 3, b"payload", vec![]).expect("send");
+        conn.send(Kind::Reply, 9, 3, b"payload", vec![])
+            .expect("send");
         conn.handle_writable().expect("flush");
         let mut buf = vec![0u8; HEADER_LEN + 7];
         raw.read_exact(&mut buf).expect("read");
@@ -400,14 +426,22 @@ mod tests {
 
     #[test]
     fn backpressure_pauses_reading() {
-        let limits = ConnLimits { max_outbox_frames: 1, ..Default::default() };
+        let limits = ConnLimits {
+            max_outbox_frames: 1,
+            ..Default::default()
+        };
         let (a, mut raw) = UnixStream::pair().expect("socketpair");
         let mut conn = Connection::from_stream(a, limits).expect("conn");
-        conn.send(Kind::Notify, 1, 0, b"x", vec![]).expect("first send fits");
-        assert!(matches!(conn.send(Kind::Notify, 1, 0, b"y", vec![]), Err(Error::Backpressure)));
+        conn.send(Kind::Notify, 1, 0, b"x", vec![])
+            .expect("first send fits");
+        assert!(matches!(
+            conn.send(Kind::Notify, 1, 0, b"y", vec![]),
+            Err(Error::Backpressure)
+        ));
         assert!(!conn.interest().read);
         // queued inbound data is not read while paused
-        raw.write_all(&frame_bytes(Kind::Request, 5, 5, b"z", 0)).expect("write");
+        raw.write_all(&frame_bytes(Kind::Request, 5, 5, b"z", 0))
+            .expect("write");
         assert_eq!(conn.handle_readable().expect("paused pump"), 0);
         conn.handle_writable().expect("flush");
         assert!(conn.interest().read);
@@ -422,7 +456,9 @@ mod tests {
             .expect("memfd");
         let mut file = std::fs::File::from(memfd);
         file.write_all(b"fd contents").expect("write memfd");
-        sender.send(Kind::Request, 11, 1, b"with fd", vec![file.into()]).expect("send");
+        sender
+            .send(Kind::Request, 11, 1, b"with fd", vec![file.into()])
+            .expect("send");
         sender.handle_writable().expect("flush");
         receiver.handle_readable().expect("receive");
         let msg = receiver.next_message().expect("message");
@@ -445,14 +481,27 @@ mod tests {
         // frame declares 2 fds but only 1 was attached
         let memfd = rustix::fs::memfd_create("crownos-ipc-test2", rustix::fs::MemfdFlags::CLOEXEC)
             .expect("memfd");
-        let header = Header { len: 1, kind: Kind::Request, fd_count: 2, selector: 0, req_id: 0 };
+        let header = Header {
+            len: 1,
+            kind: Kind::Request,
+            fd_count: 2,
+            selector: 0,
+            req_id: 0,
+        };
         let mut bytes = header.encode().to_vec();
         bytes.push(b'x');
         sender.outbox_bytes += bytes.len();
-        sender.outbox.push_back(OutFrame { bytes, fds: vec![memfd], offset: 0 });
+        sender.outbox.push_back(OutFrame {
+            bytes,
+            fds: vec![memfd],
+            offset: 0,
+        });
         sender.handle_writable().expect("flush");
         drop(sender);
-        assert!(matches!(receiver.handle_readable(), Err(Error::Malformed(_))));
+        assert!(matches!(
+            receiver.handle_readable(),
+            Err(Error::Malformed(_))
+        ));
         assert!(receiver.is_closed());
     }
 
@@ -463,14 +512,23 @@ mod tests {
         let memfd = rustix::fs::memfd_create("crownos-ipc-test3", rustix::fs::MemfdFlags::CLOEXEC)
             .expect("memfd");
         let probe = memfd.try_clone().expect("dup");
-        sender.send(Kind::Request, 1, 1, b"good", vec![memfd]).expect("send good");
+        sender
+            .send(Kind::Request, 1, 1, b"good", vec![memfd])
+            .expect("send good");
         sender.handle_writable().expect("flush good");
         let mut bad = frame_bytes(Kind::Request, 2, 2, b"bad", 0);
         bad[6] = 1; // reserved byte violation
         sender.outbox_bytes += bad.len();
-        sender.outbox.push_back(OutFrame { bytes: bad, fds: vec![], offset: 0 });
+        sender.outbox.push_back(OutFrame {
+            bytes: bad,
+            fds: vec![],
+            offset: 0,
+        });
         sender.handle_writable().expect("flush bad");
-        assert!(matches!(receiver.handle_readable(), Err(Error::Malformed(_))));
+        assert!(matches!(
+            receiver.handle_readable(),
+            Err(Error::Malformed(_))
+        ));
         // the good message (and its fd) must have been dropped, not delivered
         assert!(receiver.next_message().is_none());
         drop(probe);

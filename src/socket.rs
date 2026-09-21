@@ -12,7 +12,11 @@ fn validate_service_name(service: &str) -> Result<(), Error> {
         && service
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_');
-    if ok { Ok(()) } else { Err(Error::InvalidServiceName(service.to_owned())) }
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::InvalidServiceName(service.to_owned()))
+    }
 }
 
 /// `$XDG_RUNTIME_DIR/crownos`, created 0700 if missing. The directory must
@@ -75,7 +79,10 @@ pub(crate) fn connect(dir: &Path, service: &str) -> Result<UnixStream, Error> {
                 std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
             ) =>
         {
-            Err(Error::ServiceUnavailable { service: service.to_owned(), path })
+            Err(Error::ServiceUnavailable {
+                service: service.to_owned(),
+                path,
+            })
         }
         Err(e) => Err(Error::Io(e)),
     }
@@ -86,10 +93,7 @@ pub(crate) fn test_dir() -> PathBuf {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "crownos-ipc-test-{}-{n}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("crownos-ipc-test-{}-{n}", std::process::id()));
     ensure_dir(&dir).expect("test dir");
     dir
 }
@@ -100,7 +104,14 @@ mod tests {
 
     #[test]
     fn rejects_bad_service_names() {
-        for bad in ["", "UPPER", "with/slash", "with.dot", "a b", &"x".repeat(65)] {
+        for bad in [
+            "",
+            "UPPER",
+            "with/slash",
+            "with.dot",
+            "a b",
+            &"x".repeat(65),
+        ] {
             assert!(matches!(
                 validate_service_name(bad),
                 Err(Error::InvalidServiceName(_))
@@ -113,7 +124,10 @@ mod tests {
     fn dir_and_socket_permissions() {
         let dir = test_dir();
         let _listener = bind_service(&dir, "permtest").expect("bind");
-        let dir_mode = std::fs::metadata(&dir).expect("dir meta").permissions().mode();
+        let dir_mode = std::fs::metadata(&dir)
+            .expect("dir meta")
+            .permissions()
+            .mode();
         assert_eq!(dir_mode & 0o777, 0o700);
         let sock_mode = std::fs::metadata(dir.join("permtest.sock"))
             .expect("sock meta")

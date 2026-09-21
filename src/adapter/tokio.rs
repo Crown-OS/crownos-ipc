@@ -157,13 +157,19 @@ where
                     any = true;
                 }
             }
-            if any { Poll::Ready((accept, ready)) } else { Poll::Pending }
+            if any {
+                Poll::Ready((accept, ready))
+            } else {
+                Poll::Pending
+            }
         })
         .await;
 
         if accept_ready {
             while let Some(id) = server.accept()? {
-                let Some(fd) = server.peer_fd(id) else { continue };
+                let Some(fd) = server.peer_fd(id) else {
+                    continue;
+                };
                 watchers.insert(id, watcher_for(fd)?);
             }
         }

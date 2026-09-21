@@ -90,7 +90,11 @@ impl MethodMsg for Shutdown {
 }
 
 /// Serve `testsvc` on a background thread until a `Shutdown` request arrives.
-fn spawn_server(dir: PathBuf, authorizer: Authorizer, limits: Limits) -> std::thread::JoinHandle<()> {
+fn spawn_server(
+    dir: PathBuf,
+    authorizer: Authorizer,
+    limits: Limits,
+) -> std::thread::JoinHandle<()> {
     let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
     let ready2 = ready.clone();
     let handle = std::thread::spawn(move || {
@@ -129,7 +133,8 @@ fn spawn_server(dir: PathBuf, authorizer: Authorizer, limits: Limits) -> std::th
 
 fn shutdown(dir: &std::path::Path) {
     let mut c = Client::connect_in(dir, "testsvc").expect("connect for shutdown");
-    c.call_blocking::<Shutdown>(&Shutdown, vec![], TIMEOUT).expect("shutdown");
+    c.call_blocking::<Shutdown>(&Shutdown, vec![], TIMEOUT)
+        .expect("shutdown");
 }
 
 #[test]
@@ -138,7 +143,13 @@ fn echo_round_trip() {
     let server = spawn_server(dir.clone(), Authorizer::SameUid, Limits::default());
     let mut client = Client::connect_in(&dir, "testsvc").expect("connect");
     let reply = client
-        .call_blocking::<Echo>(&Echo { text: "hello".into() }, vec![], TIMEOUT)
+        .call_blocking::<Echo>(
+            &Echo {
+                text: "hello".into(),
+            },
+            vec![],
+            TIMEOUT,
+        )
         .expect("echo");
     assert_eq!(reply, "hello");
     shutdown(&dir);
@@ -150,9 +161,20 @@ fn pipelined_out_of_order_correlation() {
     let dir = test_dir();
     let server = spawn_server(dir.clone(), Authorizer::SameUid, Limits::default());
     let mut client = Client::connect_in(&dir, "testsvc").expect("connect");
-    let p1 = client.start_request::<Echo>(&Echo { text: "one".into() }, vec![]).expect("p1");
-    let p2 = client.start_request::<Echo>(&Echo { text: "two".into() }, vec![]).expect("p2");
-    let p3 = client.start_request::<Echo>(&Echo { text: "three".into() }, vec![]).expect("p3");
+    let p1 = client
+        .start_request::<Echo>(&Echo { text: "one".into() }, vec![])
+        .expect("p1");
+    let p2 = client
+        .start_request::<Echo>(&Echo { text: "two".into() }, vec![])
+        .expect("p2");
+    let p3 = client
+        .start_request::<Echo>(
+            &Echo {
+                text: "three".into(),
+            },
+            vec![],
+        )
+        .expect("p3");
     // resolve in reverse order of sending
     assert_eq!(client.wait(p3, TIMEOUT).expect("r3"), "three");
     assert_eq!(client.wait(p1, TIMEOUT).expect("r1"), "one");
@@ -166,7 +188,9 @@ fn remote_error_propagates() {
     let dir = test_dir();
     let server = spawn_server(dir.clone(), Authorizer::SameUid, Limits::default());
     let mut client = Client::connect_in(&dir, "testsvc").expect("connect");
-    let err = client.call_blocking::<Fail>(&Fail, vec![], TIMEOUT).expect_err("must fail");
+    let err = client
+        .call_blocking::<Fail>(&Fail, vec![], TIMEOUT)
+        .expect_err("must fail");
     match err {
         Error::Remote(remote) => {
             assert_eq!(remote.code, RemoteError::HANDLER);
@@ -183,7 +207,9 @@ fn forged_selector_fails_loudly() {
     let dir = test_dir();
     let server = spawn_server(dir.clone(), Authorizer::SameUid, Limits::default());
     let mut client = Client::connect_in(&dir, "testsvc").expect("connect");
-    let err = client.call_blocking::<Forged>(&Forged, vec![], TIMEOUT).expect_err("unknown");
+    let err = client
+        .call_blocking::<Forged>(&Forged, vec![], TIMEOUT)
+        .expect_err("unknown");
     match err {
         Error::Remote(remote) => assert_eq!(remote.code, RemoteError::UNKNOWN_METHOD),
         other => panic!("expected unknown-method error, got {other}"),
@@ -198,9 +224,13 @@ fn events_reach_only_subscribers() {
     let server = spawn_server(dir.clone(), Authorizer::SameUid, Limits::default());
     let mut subscriber = Client::connect_in(&dir, "testsvc").expect("connect sub");
     let mut bystander = Client::connect_in(&dir, "testsvc").expect("connect bys");
-    subscriber.subscribe_blocking::<Ping>(TIMEOUT).expect("subscribe");
+    subscriber
+        .subscribe_blocking::<Ping>(TIMEOUT)
+        .expect("subscribe");
     // trigger an event from the bystander connection
-    bystander.call_blocking::<EmitPing>(&EmitPing, vec![], TIMEOUT).expect("emit");
+    bystander
+        .call_blocking::<EmitPing>(&EmitPing, vec![], TIMEOUT)
+        .expect("emit");
     // subscriber sees it
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     let event = loop {
@@ -238,16 +268,21 @@ fn unauthorized_peer_is_dropped() {
 #[test]
 fn per_uid_connection_cap() {
     let dir = test_dir();
-    let limits = Limits { max_conns_per_uid: 2, ..Default::default() };
+    let limits = Limits {
+        max_conns_per_uid: 2,
+        ..Default::default()
+    };
     let server = spawn_server(dir.clone(), Authorizer::SameUid, limits);
     let mut c1 = Client::connect_in(&dir, "testsvc").expect("c1");
     let mut c2 = Client::connect_in(&dir, "testsvc").expect("c2");
     assert_eq!(
-        c1.call_blocking::<Echo>(&Echo { text: "1".into() }, vec![], TIMEOUT).expect("c1 works"),
+        c1.call_blocking::<Echo>(&Echo { text: "1".into() }, vec![], TIMEOUT)
+            .expect("c1 works"),
         "1"
     );
     assert_eq!(
-        c2.call_blocking::<Echo>(&Echo { text: "2".into() }, vec![], TIMEOUT).expect("c2 works"),
+        c2.call_blocking::<Echo>(&Echo { text: "2".into() }, vec![], TIMEOUT)
+            .expect("c2 works"),
         "2"
     );
     let mut c3 = Client::connect_in(&dir, "testsvc").expect("c3 kernel connect");
@@ -257,7 +292,14 @@ fn per_uid_connection_cap() {
     assert!(matches!(err, Error::Disconnected), "got {err}");
     // survivors still work
     assert_eq!(
-        c1.call_blocking::<Echo>(&Echo { text: "again".into() }, vec![], TIMEOUT).expect("c1"),
+        c1.call_blocking::<Echo>(
+            &Echo {
+                text: "again".into()
+            },
+            vec![],
+            TIMEOUT
+        )
+        .expect("c1"),
         "again"
     );
     // free slots, then retry shutdown until the server has reaped them
@@ -285,9 +327,18 @@ fn server_death_mid_call_disconnects() {
     shutdown(&dir);
     server.join().expect("server thread");
     let err = client
-        .call_blocking::<Echo>(&Echo { text: "too late".into() }, vec![], TIMEOUT)
+        .call_blocking::<Echo>(
+            &Echo {
+                text: "too late".into(),
+            },
+            vec![],
+            TIMEOUT,
+        )
         .expect_err("server gone");
-    assert!(matches!(err, Error::Disconnected | Error::Io(_)), "got {err}");
+    assert!(
+        matches!(err, Error::Disconnected | Error::Io(_)),
+        "got {err}"
+    );
 }
 
 #[test]
@@ -299,11 +350,15 @@ fn slow_subscriber_loses_events_not_the_server() {
     // lazy never pumps again; flood it with events via another connection
     let mut driver = Client::connect_in(&dir, "testsvc").expect("connect driver");
     for _ in 0..5000 {
-        driver.call_blocking::<EmitPing>(&EmitPing, vec![], TIMEOUT).expect("emit");
+        driver
+            .call_blocking::<EmitPing>(&EmitPing, vec![], TIMEOUT)
+            .expect("emit");
     }
     // server must still serve promptly despite the wedged subscriber
     assert_eq!(
-        driver.call_blocking::<Echo>(&Echo { text: "ok".into() }, vec![], TIMEOUT).expect("echo"),
+        driver
+            .call_blocking::<Echo>(&Echo { text: "ok".into() }, vec![], TIMEOUT)
+            .expect("echo"),
         "ok"
     );
     shutdown(&dir);
@@ -321,13 +376,21 @@ fn garbage_input_does_not_kill_server() {
     // hurl random-ish garbage at the socket from several raw connections
     for i in 0u8..8 {
         let mut raw = UnixStream::connect(dir.join("testsvc.sock")).expect("raw connect");
-        let garbage: Vec<u8> = (0..2048).map(|j| (i as usize * 31 + j * 7) as u8 | 0x80).collect();
+        let garbage: Vec<u8> = (0..2048)
+            .map(|j| (i as usize * 31 + j * 7) as u8 | 0x80)
+            .collect();
         let _ = raw.write_all(&garbage);
     }
     // a well-behaved client still gets service
     let mut client = Client::connect_in(&dir, "testsvc").expect("connect");
     let reply = client
-        .call_blocking::<Echo>(&Echo { text: "alive".into() }, vec![], TIMEOUT)
+        .call_blocking::<Echo>(
+            &Echo {
+                text: "alive".into(),
+            },
+            vec![],
+            TIMEOUT,
+        )
         .expect("server survived");
     assert_eq!(reply, "alive");
     shutdown(&dir);
