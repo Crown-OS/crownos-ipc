@@ -60,7 +60,15 @@ impl AsyncClient {
         Ok(())
     }
 
-    async fn pump(&mut self) -> Result<(), Error> {
+    /// Flush what is queued, then wait for and decode one batch of inbound
+    /// frames.
+    ///
+    /// [`AsyncClient::next_event`] is the right call for a client watching one
+    /// event type. A client watching several cannot use it — awaiting one type
+    /// starves the others — so it awaits this instead and drains the queue
+    /// itself with [`Client::next_event`], which leaves foreign events in
+    /// place for the next extractor.
+    pub async fn pump(&mut self) -> Result<(), Error> {
         self.flush().await?;
         let mut guard = self.watcher.readable().await.map_err(Error::Io)?;
         guard.clear_ready_matching(Ready::READABLE);
