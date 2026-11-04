@@ -25,7 +25,7 @@ calloop = ["dep:calloop"]
 
 [dev-dependencies]
 rustix = { version = "1", default-features = false, features = ["std", "fs"] }
-tokio = { version = "1", default-features = false, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "rt-multi-thread", "macros", "time", "sync"] }
 async-io = "2"
 futures-lite = "2"
 calloop = "0.13"

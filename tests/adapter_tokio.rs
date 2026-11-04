@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crownos_ipc::adapter::tokio::{AsyncClient, serve};
+use crownos_ipc::adapter::tokio::{AsyncClient, serve, serve_with_outbox};
 use crownos_ipc::{RemoteError, ServiceBuilder};
 
 crownos_ipc::protocol! {
@@ -114,6 +114,57 @@ async fn tokio_concurrent_clients() {
 
     let mut c = AsyncClient::connect_in(&dir, "toktest").expect("connect");
     c.notify::<tokproto::stop>(&tokproto::stop {}, vec![])
+        .await
+        .expect("stop");
+    tokio::time::timeout(std::time::Duration::from_secs(5), server_task)
+        .await
+        .expect("server did not stop")
+        .expect("server task");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tokio_outbox_events_reach_subscribers_unprompted() {
+    let dir = test_dir();
+    let mut server = ServiceBuilder::new("toktest")
+        .directory(&dir)
+        .build()
+        .expect("bind");
+    let (ticks, mut outbox) = tokio::sync::mpsc::unbounded_channel::<u32>();
+    let server_task = tokio::spawn(async move {
+        let mut h = H { stop: false };
+        serve_with_outbox(
+            &mut server,
+            |srv, peer, msg| {
+                tokproto::dispatch(&mut h, srv, peer, msg)?;
+                Ok(!h.stop)
+            },
+            |cx| outbox.poll_recv(cx),
+            |srv, n| {
+                srv.emit(&tokproto::Tick { n }).expect("emit");
+            },
+        )
+        .await
+        .expect("serve");
+    });
+
+    let mut client = AsyncClient::connect_in(&dir, "toktest").expect("connect");
+    client
+        .subscribe::<tokproto::Tick>()
+        .await
+        .expect("subscribe");
+    ticks.send(7).expect("send");
+
+    let tick = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        client.next_event::<tokproto::Tick>(),
+    )
+    .await
+    .expect("no event")
+    .expect("event");
+    assert_eq!(tick, tokproto::Tick { n: 7 });
+
+    client
+        .notify::<tokproto::stop>(&tokproto::stop {}, vec![])
         .await
         .expect("stop");
     tokio::time::timeout(std::time::Duration::from_secs(5), server_task)

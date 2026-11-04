@@ -124,16 +124,53 @@ impl AsyncClient {
 /// Drive a [`Server`] on the tokio runtime. `dispatch` receives each
 /// application message (generated `dispatch` functions slot in directly)
 /// and ends the loop by returning `Ok(false)`.
-pub async fn serve<F>(server: &mut Server, mut dispatch: F) -> Result<(), Error>
+pub async fn serve<F>(server: &mut Server, dispatch: F) -> Result<(), Error>
 where
     F: FnMut(&mut Server, PeerId, crate::Message) -> Result<bool, Error>,
 {
+    serve_with_outbox(
+        server,
+        dispatch,
+        |_| Poll::<Option<()>>::Pending,
+        |_, ()| {},
+    )
+    .await
+}
+
+/// [`serve`], also delivering what the rest of the program wants to send
+/// unprompted, such as events.
+///
+/// `outbox` is polled like a channel receiver (`|cx| receiver.poll_recv(cx)`)
+/// and every item it yields is handed to `send` with the server, which
+/// usually calls [`Server::emit`]. Once `outbox` yields `None` it is no longer
+/// polled.
+pub async fn serve_with_outbox<F, T, O, S>(
+    server: &mut Server,
+    mut dispatch: F,
+    mut outbox: O,
+    mut send: S,
+) -> Result<(), Error>
+where
+    F: FnMut(&mut Server, PeerId, crate::Message) -> Result<bool, Error>,
+    O: FnMut(&mut std::task::Context<'_>) -> Poll<Option<T>>,
+    S: FnMut(&mut Server, T),
+{
     let listener = watcher_for(&*server)?;
     let mut watchers: HashMap<PeerId, AsyncFd<OwnedFd>> = HashMap::new();
+    let mut outbox_open = true;
     loop {
-        let (accept_ready, ready) = poll_fn(|cx| {
+        let (accept_ready, ready, outgoing) = poll_fn(|cx| {
             let mut any = false;
             let mut accept = false;
+            let mut outgoing = Vec::new();
+            while outbox_open {
+                match outbox(cx) {
+                    Poll::Ready(Some(item)) => outgoing.push(item),
+                    Poll::Ready(None) => outbox_open = false,
+                    Poll::Pending => break,
+                }
+            }
+            any |= !outgoing.is_empty();
             if let Poll::Ready(Ok(mut guard)) = listener.poll_read_ready(cx) {
                 guard.clear_ready_matching(Ready::READABLE);
                 accept = true;
@@ -166,12 +203,16 @@ where
                 }
             }
             if any {
-                Poll::Ready((accept, ready))
+                Poll::Ready((accept, ready, outgoing))
             } else {
                 Poll::Pending
             }
         })
         .await;
+
+        for item in outgoing {
+            send(server, item);
+        }
 
         if accept_ready {
             while let Some(id) = server.accept()? {
