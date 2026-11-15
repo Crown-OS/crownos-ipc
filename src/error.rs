@@ -13,6 +13,8 @@ pub enum Error {
     InvalidServiceName(String),
     #[error("service '{service}' unavailable at {path}")]
     ServiceUnavailable { service: String, path: PathBuf },
+    #[error("service '{service}' is already served at {path}")]
+    ServiceRunning { service: String, path: PathBuf },
     #[error("malformed frame: {0}")]
     Malformed(&'static str),
     #[error("payload decode failed: {0}")]

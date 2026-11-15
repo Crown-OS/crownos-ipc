@@ -53,10 +53,18 @@ pub(crate) fn socket_path_in(dir: &Path, service: &str) -> Result<PathBuf, Error
 
 /// Bind a service socket with an atomic replace: bind a hidden temp name,
 /// restrict its mode, then rename over the final path so connecting clients
-/// never observe a missing or half-configured socket.
+/// never observe a missing or half-configured socket. Only a stale socket is
+/// replaced: a path that a live server still answers is refused, so a second
+/// instance cannot orphan the first.
 pub(crate) fn bind_service(dir: &Path, service: &str) -> Result<UnixListener, Error> {
     let final_path = socket_path_in(dir, service)?;
     ensure_dir(dir)?;
+    if UnixStream::connect(&final_path).is_ok() {
+        return Err(Error::ServiceRunning {
+            service: service.to_owned(),
+            path: final_path,
+        });
+    }
     let tmp_path = dir.join(format!(".{service}.sock.{}", std::process::id()));
     let _ = std::fs::remove_file(&tmp_path);
     let listener = UnixListener::bind(&tmp_path)?;
@@ -137,17 +145,34 @@ mod tests {
     }
 
     #[test]
-    fn atomic_replace_has_no_gap() {
+    fn a_live_service_keeps_its_socket() {
         let dir = test_dir();
-        let first = bind_service(&dir, "replace").expect("first bind");
-        // rebinding replaces the socket; connect must succeed throughout
-        connect(&dir, "replace").expect("connect to first");
-        let second = bind_service(&dir, "replace").expect("second bind");
-        let stream = connect(&dir, "replace").expect("connect after replace");
-        // the connection landed on the new listener, not the old one
+        let first = bind_service(&dir, "live").expect("first bind");
+        assert!(matches!(
+            bind_service(&dir, "live"),
+            Err(Error::ServiceRunning { .. })
+        ));
+        connect(&dir, "live").expect("connect after refused rebind");
+        first.set_nonblocking(false).expect("blocking accept");
+        first.accept().expect("probe connection");
+        first
+            .accept()
+            .expect("first listener still gets new connections");
+    }
+
+    #[test]
+    fn a_stale_socket_is_replaced() {
+        let dir = test_dir();
+        drop(bind_service(&dir, "stale").expect("first bind"));
+        assert!(matches!(
+            connect(&dir, "stale"),
+            Err(Error::ServiceUnavailable { .. })
+        ));
+        let second = bind_service(&dir, "stale").expect("rebind over a stale socket");
+        let stream = connect(&dir, "stale").expect("connect after replace");
         second.set_nonblocking(false).expect("blocking accept");
-        let (_conn, _) = second.accept().expect("second listener got the connection");
-        drop((first, stream));
+        second.accept().expect("second listener got the connection");
+        drop(stream);
     }
 
     #[test]
