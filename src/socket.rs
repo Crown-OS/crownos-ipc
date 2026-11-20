@@ -41,11 +41,6 @@ pub(crate) fn ensure_dir(dir: &Path) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn socket_path(service: &str) -> Result<PathBuf, Error> {
-    validate_service_name(service)?;
-    Ok(socket_dir()?.join(format!("{service}.sock")))
-}
-
 pub(crate) fn socket_path_in(dir: &Path, service: &str) -> Result<PathBuf, Error> {
     validate_service_name(service)?;
     Ok(dir.join(format!("{service}.sock")))
