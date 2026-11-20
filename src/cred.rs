@@ -34,6 +34,8 @@ pub enum Authorizer {
     SameUid,
     /// Allow an explicit set of uids, plus our own.
     Uids(Vec<u32>),
+    /// Allow every peer; the service authorizes each request and notify from [`Credentials`].
+    AnyUser,
     /// Arbitrary predicate over the peer credentials.
     Custom(Box<dyn Fn(&Credentials) -> bool + Send + Sync>),
 }
@@ -43,6 +45,7 @@ impl std::fmt::Debug for Authorizer {
         match self {
             Authorizer::SameUid => f.write_str("SameUid"),
             Authorizer::Uids(uids) => f.debug_tuple("Uids").field(uids).finish(),
+            Authorizer::AnyUser => f.write_str("AnyUser"),
             Authorizer::Custom(_) => f.write_str("Custom(..)"),
         }
     }
@@ -54,6 +57,7 @@ impl Authorizer {
         match self {
             Authorizer::SameUid => cred.uid == own,
             Authorizer::Uids(uids) => cred.uid == own || uids.contains(&cred.uid),
+            Authorizer::AnyUser => true,
             Authorizer::Custom(pred) => pred(cred),
         }
     }
@@ -89,5 +93,7 @@ mod tests {
         };
         assert!(!Authorizer::SameUid.allows(&other));
         assert!(Authorizer::Uids(vec![cred.uid + 1]).allows(&other));
+        assert!(Authorizer::AnyUser.allows(&cred));
+        assert!(Authorizer::AnyUser.allows(&other));
     }
 }

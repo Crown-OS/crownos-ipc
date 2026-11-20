@@ -45,11 +45,13 @@ struct Slot {
     peer: Option<Peer>,
 }
 
+#[must_use = "a ServiceBuilder does nothing until build()"]
 pub struct ServiceBuilder {
     service: String,
     directory: Option<PathBuf>,
     authorizer: Authorizer,
     limits: Limits,
+    socket_mode: u32,
 }
 
 impl ServiceBuilder {
@@ -59,6 +61,7 @@ impl ServiceBuilder {
             directory: None,
             authorizer: Authorizer::default(),
             limits: Limits::default(),
+            socket_mode: 0o600,
         }
     }
 
@@ -78,6 +81,21 @@ impl ServiceBuilder {
         self
     }
 
+    /// Set the socket file mode (default `0o600`). A system service binds under
+    /// `/run/crownos` with `0o666` and [`Authorizer::AnyUser`], and authorizes
+    /// each request and notify through [`Server::credentials`] in its dispatch closure.
+    ///
+    /// `build()` creates a missing directory with mode 0700. The directory must exist
+    /// with mode 0755 before `build()`, or no other user can reach the socket.
+    /// Has no effect with [`ServiceBuilder::build_with_listener`].
+    ///
+    /// Every local user then gets the full [`Limits`] budget before the handler sees
+    /// a request. Set [`ServiceBuilder::limits`] low for such a service.
+    pub fn socket_mode(mut self, mode: u32) -> Self {
+        self.socket_mode = mode;
+        self
+    }
+
     pub fn build(self) -> Result<Server, Error> {
         let dir = match &self.directory {
             Some(d) => {
@@ -86,7 +104,7 @@ impl ServiceBuilder {
             }
             None => socket::socket_dir()?,
         };
-        let listener = socket::bind_service(&dir, &self.service)?;
+        let listener = socket::bind_service(&dir, &self.service, self.socket_mode)?;
         Ok(Server::from_parts(listener, self))
     }
 

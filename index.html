@@ -699,7 +699,7 @@ footer {
 
       <figure>
         <div class="plate">
-          <svg viewBox="0 0 760 248" role="img" aria-label="The runtime directory is created 0700 and ownership-checked; a service binds a hidden temporary socket, chmods it 0600, then renames it over the final path.">
+          <svg viewBox="0 0 760 248" role="img" aria-label="The runtime directory is created 0700 and ownership-checked; a service binds a hidden temporary socket, sets its mode to socket_mode (0600 by default), then renames it over the final path. Clients never observe a missing socket or one with the umask mode.">
             <defs>
               <marker id="a2" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
                 <polygon points="0,0 10,4 0,8" fill="var(--text-3)"></polygon>
@@ -732,22 +732,22 @@ footer {
             <line class="svg-line" x1="577" y1="82" x2="577" y2="100" marker-end="url(#a2)"></line>
 
             <rect class="svg-box" x="412" y="102" width="330" height="34" rx="2"></rect>
-            <text class="t" x="428" y="124">chmod 0600</text>
+            <text class="t" x="428" y="124">chmod socket_mode  (0600 default)</text>
 
             <line class="svg-line" x1="577" y1="136" x2="577" y2="154" marker-end="url(#a2)"></line>
 
             <rect class="svg-box-accent" x="412" y="156" width="330" height="34" rx="2"></rect>
             <text class="t" x="428" y="178">rename(tmp → "crownpad.sock")</text>
 
-            <text class="t-l" x="412" y="212">rename(2) is atomic: a client never</text>
-            <text class="t-l" x="412" y="230">observes a missing or 0666 socket.</text>
+            <text class="t-l" x="412" y="212">rename(2) is atomic: clients never see a</text>
+            <text class="t-l" x="412" y="230">missing socket or one with the umask mode.</text>
           </svg>
         </div>
         <figcaption>
           <b>Two windows closed at once.</b> Binding directly at the final path would expose the
           socket at the default umask for as long as it takes to <code>chmod</code> it, and would
           leave a gap between <code>unlink</code> and <code>bind</code> during a restart. Binding a
-          pid-suffixed hidden name, restricting it, then renaming over the target closes both.
+          pid-suffixed hidden name, setting its mode to <code>socket_mode</code>, then renaming over the target closes both.
         </figcaption>
       </figure>
 
@@ -756,6 +756,22 @@ footer {
         so would a nested seat. <code>build_with_listener()</code> takes a listener the caller
         already owns, which is how a systemd socket-activated unit hands over
         <code>LISTEN_FDS</code>. Both paths end with the listener in non-blocking mode.
+      </p>
+
+      <p>
+        A system service runs as root and serves every user. It binds under
+        <code>/run/crownos</code>, which tmpfiles creates with mode 0755. Use
+        <code>.directory("/run/crownos").socket_mode(0o666).authorizer(Authorizer::AnyUser)</code>,
+        then authorize each request and notify through <code>Server::credentials(peer)</code> in
+        the dispatch closure. The default socket mode is 0600.
+      </p>
+
+      <p>
+        <code>build()</code> creates a missing directory with mode 0700. The directory must exist
+        with mode 0755 before <code>build()</code>, or no other user can reach the socket.
+        <code>socket_mode()</code> has no effect with <code>build_with_listener()</code>. Every
+        local user then gets the full <code>Limits</code> budget before the handler sees a request.
+        Set <code>ServiceBuilder::limits()</code> low for such a service.
       </p>
     </section>
 
@@ -842,6 +858,11 @@ footer {
               <td>A greeter or system agent that must serve a second account.</td>
             </tr>
             <tr>
+              <td class="mono">AnyUser</td>
+              <td>Every peer.</td>
+              <td>A system service under <code>/run/crownos</code> that checks <code>Server::credentials(peer)</code> on each request and notify.</td>
+            </tr>
+            <tr>
               <td class="mono">Custom(Box&lt;dyn Fn&gt;)</td>
               <td>Whatever the predicate says about the full <code>Credentials</code>.</td>
               <td>Group membership, cgroup checks, deny-lists.</td>
@@ -849,6 +870,11 @@ footer {
           </tbody>
         </table>
       </div>
+
+      <p>
+        With <code>AnyUser</code> the accept step trusts nobody. The handler must check
+        <code>Server::credentials(peer)</code> on every request and notify.
+      </p>
 
       <p>
         <code>Credentials</code> also carries a best-effort <code>pidfd</code>. It is explicitly

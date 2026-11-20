@@ -47,11 +47,15 @@ pub(crate) fn socket_path_in(dir: &Path, service: &str) -> Result<PathBuf, Error
 }
 
 /// Bind a service socket with an atomic replace: bind a hidden temp name,
-/// restrict its mode, then rename over the final path so connecting clients
+/// set its mode to `socket_mode`, then rename over the final path so connecting clients
 /// never observe a missing or half-configured socket. Only a stale socket is
 /// replaced: a path that a live server still answers is refused, so a second
 /// instance cannot orphan the first.
-pub(crate) fn bind_service(dir: &Path, service: &str) -> Result<UnixListener, Error> {
+pub(crate) fn bind_service(
+    dir: &Path,
+    service: &str,
+    socket_mode: u32,
+) -> Result<UnixListener, Error> {
     let final_path = socket_path_in(dir, service)?;
     ensure_dir(dir)?;
     if UnixStream::connect(&final_path).is_ok() {
@@ -63,7 +67,7 @@ pub(crate) fn bind_service(dir: &Path, service: &str) -> Result<UnixListener, Er
     let tmp_path = dir.join(format!(".{service}.sock.{}", std::process::id()));
     let _ = std::fs::remove_file(&tmp_path);
     let listener = UnixListener::bind(&tmp_path)?;
-    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))?;
+    std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(socket_mode))?;
     std::fs::rename(&tmp_path, &final_path)?;
     listener.set_nonblocking(true)?;
     Ok(listener)
@@ -126,7 +130,7 @@ mod tests {
     #[test]
     fn dir_and_socket_permissions() {
         let dir = test_dir();
-        let _listener = bind_service(&dir, "permtest").expect("bind");
+        let _listener = bind_service(&dir, "permtest", 0o600).expect("bind");
         let dir_mode = std::fs::metadata(&dir)
             .expect("dir meta")
             .permissions()
@@ -140,11 +144,22 @@ mod tests {
     }
 
     #[test]
+    fn a_world_writable_socket_mode_is_applied() {
+        let dir = test_dir();
+        let _listener = bind_service(&dir, "public", 0o666).expect("bind");
+        let sock_mode = std::fs::metadata(dir.join("public.sock"))
+            .expect("sock meta")
+            .permissions()
+            .mode();
+        assert_eq!(sock_mode & 0o777, 0o666);
+    }
+
+    #[test]
     fn a_live_service_keeps_its_socket() {
         let dir = test_dir();
-        let first = bind_service(&dir, "live").expect("first bind");
+        let first = bind_service(&dir, "live", 0o600).expect("first bind");
         assert!(matches!(
-            bind_service(&dir, "live"),
+            bind_service(&dir, "live", 0o600),
             Err(Error::ServiceRunning { .. })
         ));
         connect(&dir, "live").expect("connect after refused rebind");
@@ -158,12 +173,12 @@ mod tests {
     #[test]
     fn a_stale_socket_is_replaced() {
         let dir = test_dir();
-        drop(bind_service(&dir, "stale").expect("first bind"));
+        drop(bind_service(&dir, "stale", 0o600).expect("first bind"));
         assert!(matches!(
             connect(&dir, "stale"),
             Err(Error::ServiceUnavailable { .. })
         ));
-        let second = bind_service(&dir, "stale").expect("rebind over a stale socket");
+        let second = bind_service(&dir, "stale", 0o600).expect("rebind over a stale socket");
         let stream = connect(&dir, "stale").expect("connect after replace");
         second.set_nonblocking(false).expect("blocking accept");
         second.accept().expect("second listener got the connection");
